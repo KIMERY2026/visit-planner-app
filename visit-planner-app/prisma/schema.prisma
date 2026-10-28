@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MP         // full access: everything, including deleting places and managing users
+  ASSISTANT  // catalogue + calendar + reports (matches "Assistant/Scheduler" tier in the proposal)
+  STAFF      // limited: can view dashboard/places/history and log visits, cannot delete or edit the catalogue
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum PlanStatus {
+  PLANNED
+  DONE
+  SKIPPED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(STAFF)
+  createdAt    DateTime @default(now())
+  visitsLogged Visit[]
+}
+
+model Place {
+  id           String     @id @default(cuid())
+  name         String
+  category     String?
+  ward         String?
+  contact      String?
+  priority     Priority   @default(MEDIUM)
+  intervalDays Int        @default(30) // how often this place should ideally be visited
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  visits       Visit[]
+  planItems    PlanItem[]
+
+  @@index([name])
+}
+
+model Visit {
+  id          String    @id @default(cuid())
+  place       Place     @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  placeId     String
+  date        DateTime  @db.Date
+  note        String?
+  loggedBy    User?     @relation(fields: [loggedById], references: [id])
+  loggedById  String?
+  createdAt   DateTime  @default(now())
+  planItem    PlanItem?
+
+  @@index([placeId])
+  @@index([date])
+}
+
+// One WeekPlan per ISO week (keyed by the Monday date), holding the planned visits for that week.
+model WeekPlan {
+  id        String     @id @default(cuid())
+  weekStart DateTime   @unique @db.Date // Monday of that week
+  items     PlanItem[]
+  createdAt DateTime   @default(now())
+}
+
+model PlanItem {
+  id         String     @id @default(cuid())
+  weekPlan   WeekPlan   @relation(fields: [weekPlanId], references: [id], onDelete: Cascade)
+  weekPlanId String
+  place      Place      @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  placeId    String
+  day        Int        // 0 = Monday .. 6 = Sunday
+  status     PlanStatus @default(PLANNED)
+  reason     String?    // why it was recommended, e.g. "Overdue by 12d"
+  visit      Visit?     @relation(fields: [visitId], references: [id])
+  visitId    String?    @unique
+  createdAt  DateTime   @default(now())
+
+  @@index([weekPlanId])
+}
